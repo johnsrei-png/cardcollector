@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: card-collection
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    # Persistent disk so the SQLite database survives redeploys/restarts.
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DB_PATH
+        value: /var/data/collection.db
+      # Auto-generated strong secret for signing session cookies.
+      - key: SESSION_SECRET
+        generateValue: true
+      # Set these two yourself in the Render dashboard (marked sync:false so
+      # they are NOT stored in this file / your repo):
+      - key: THECARDAPI_KEY
+        sync: false
+      - key: APP_USERS
+        sync: false

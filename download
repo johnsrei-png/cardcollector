@@ -1,0 +1,6 @@
+node_modules/
+.env
+collection.db
+collection.db-journal
+collection.db-wal
+collection.db-shm
