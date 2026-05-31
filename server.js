@@ -315,9 +315,14 @@ app.listen(PORT, () => {
   console.log(`\n  Card Collection running on port ${PORT}`);
   // Startup diagnostics: what does the server actually see on disk?
   try {
-    const inPublic = fs.existsSync(PUBLIC_DIR) ? fs.readdirSync(PUBLIC_DIR) : "(public dir missing)";
     console.log(`  __dirname: ${__dirname}`);
-    console.log(`  public/ exists: ${fs.existsSync(PUBLIC_DIR)} -> contents: ${JSON.stringify(inPublic)}`);
+    console.log(`  cwd: ${process.cwd()}`);
+    const here = fs.readdirSync(__dirname);
+    console.log(`  files in __dirname: ${JSON.stringify(here)}`);
+    console.log(`  public/ exists: ${fs.existsSync(PUBLIC_DIR)}`);
+    if (fs.existsSync(PUBLIC_DIR)) {
+      console.log(`  public/ contents: ${JSON.stringify(fs.readdirSync(PUBLIC_DIR))}`);
+    }
     console.log(`  index.html present: ${fs.existsSync(INDEX_FILE)}\n`);
   } catch (e) {
     console.log(`  diagnostic error: ${e.message}\n`);
