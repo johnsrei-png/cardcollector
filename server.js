@@ -2,6 +2,7 @@ import express from "express";
 import { DatabaseSync } from "node:sqlite";
 import dotenv from "dotenv";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { fileURLToPath } from "url";
 import path from "path";
 
@@ -295,8 +296,30 @@ app.post("/api/collection/:id/value", requireAuth, async (req, res) => {
 });
 
 // Static files last, so /api routes win
-app.use(express.static(path.join(__dirname, "public")));
+const PUBLIC_DIR = path.join(__dirname, "public");
+const INDEX_FILE = path.join(PUBLIC_DIR, "index.html");
+
+app.use(express.static(PUBLIC_DIR));
+
+// Explicit root + catch-all for any non-API path -> serve the app shell.
+app.get("/", (req, res) => {
+  if (fs.existsSync(INDEX_FILE)) return res.sendFile(INDEX_FILE);
+  res.status(500).send("index.html not found on server. Check that public/index.html exists in the repo.");
+});
+app.get(/^\/(?!api\/).*/, (req, res) => {
+  if (fs.existsSync(INDEX_FILE)) return res.sendFile(INDEX_FILE);
+  res.status(404).send("Not found.");
+});
 
 app.listen(PORT, () => {
-  console.log(`\n  Card Collection running on port ${PORT}\n`);
+  console.log(`\n  Card Collection running on port ${PORT}`);
+  // Startup diagnostics: what does the server actually see on disk?
+  try {
+    const inPublic = fs.existsSync(PUBLIC_DIR) ? fs.readdirSync(PUBLIC_DIR) : "(public dir missing)";
+    console.log(`  __dirname: ${__dirname}`);
+    console.log(`  public/ exists: ${fs.existsSync(PUBLIC_DIR)} -> contents: ${JSON.stringify(inPublic)}`);
+    console.log(`  index.html present: ${fs.existsSync(INDEX_FILE)}\n`);
+  } catch (e) {
+    console.log(`  diagnostic error: ${e.message}\n`);
+  }
 });
