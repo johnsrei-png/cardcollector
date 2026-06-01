@@ -60,6 +60,7 @@ db.exec(`
     paid          REAL,
     notes         TEXT,
     image_url     TEXT,
+    listing_url   TEXT,
     added_at      TEXT NOT NULL,
     latest_price  REAL,
     avg_price     REAL,
@@ -67,6 +68,17 @@ db.exec(`
     valued_at     TEXT
   );
 `);
+
+// Migration: add listing_url to databases created before this column existed.
+try {
+  const cols = db.prepare("PRAGMA table_info(cards)").all();
+  if (!cols.some((c) => c.name === "listing_url")) {
+    db.exec("ALTER TABLE cards ADD COLUMN listing_url TEXT");
+    console.log("  Migrated: added listing_url column.");
+  }
+} catch (e) {
+  console.log("  Migration check failed: " + e.message);
+}
 
 // Seed / update users from APP_USERS env var
 function seedUsers() {
@@ -271,7 +283,7 @@ app.get("/api/collection/export.csv", requireAuth, (req, res) => {
     .all(req.user.id);
   const cols = [
     "title", "query", "grader", "grade", "paid", "notes",
-    "latest_price", "avg_price", "comp_count", "valued_at", "added_at",
+    "latest_price", "avg_price", "comp_count", "valued_at", "added_at", "listing_url",
   ];
   const lines = [cols.join(",")];
   for (const r of rows) lines.push(cols.map((c) => csvCell(r[c])).join(","));
@@ -294,8 +306,8 @@ app.post("/api/collection/import", requireAuth, (req, res) => {
   const mode = body.mode === "replace" ? "replace" : "merge";
 
   const insert = db.prepare(
-    `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, added_at, latest_price, avg_price, comp_count, valued_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, listing_url, added_at, latest_price, avg_price, comp_count, valued_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   let imported = 0, skipped = 0;
   try {
@@ -314,6 +326,7 @@ app.post("/api/collection/import", requireAuth, (req, res) => {
         c.paid != null && c.paid !== "" ? Number(c.paid) : null,
         c.notes || null,
         c.image_url || null,
+        c.listing_url || null,
         c.added_at || new Date().toISOString(),
         c.latest_price != null ? Number(c.latest_price) : null,
         c.avg_price != null ? Number(c.avg_price) : null,
@@ -331,12 +344,14 @@ app.post("/api/collection/import", requireAuth, (req, res) => {
 });
 
 app.post("/api/collection", requireAuth, (req, res) => {
-  const { title, query, grader, grade, paid, notes, image_url } = req.body;
+  const { title, query, grader, grade, paid, notes, image_url, listing_url,
+          latest_price, avg_price, comp_count, valued_at } = req.body;
   if (!title || !query) return res.status(400).json({ error: "title and query are required." });
+  const num = (v) => (v != null && v !== "" ? Number(v) : null);
   const info = db
     .prepare(
-      `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, added_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, listing_url, added_at, latest_price, avg_price, comp_count, valued_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       req.user.id,
@@ -344,10 +359,15 @@ app.post("/api/collection", requireAuth, (req, res) => {
       query,
       grader || null,
       grade || null,
-      paid != null && paid !== "" ? Number(paid) : null,
+      num(paid),
       notes || null,
       image_url || null,
-      new Date().toISOString()
+      listing_url || null,
+      new Date().toISOString(),
+      num(latest_price),
+      num(avg_price),
+      num(comp_count),
+      valued_at || null
     );
   const card = db.prepare("SELECT * FROM cards WHERE id = ?").get(info.lastInsertRowid);
   res.json(card);
