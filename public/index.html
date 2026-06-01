@@ -175,6 +175,7 @@
     transition: all .18s; white-space:nowrap;
   }
   .col-actions button.refresh:hover { background:var(--gold); color:#fff; border-color:var(--gold); }
+  .col-actions button.photo:hover { background:var(--ink); color:var(--paper); border-color:var(--ink); }
   .col-actions button.del:hover { background:var(--accent); color:#fff; border-color:var(--accent); }
   .valued-at { font-family:"Spline Sans Mono",monospace; font-size:9px; color:#a89b85; margin-top:2px; text-align:center; }
 
@@ -364,6 +365,11 @@
           <div><label>Grade</label><input type="text" id="mf-grade" placeholder="10" /></div>
           <div><label>Paid (optional)</label><input type="number" id="mf-paid" placeholder="0.00" /></div>
           <div class="mf-wide"><label>Notes (optional)</label><input type="text" id="mf-notes" /></div>
+          <div class="mf-wide">
+            <label>Photo (optional)</label>
+            <input type="file" id="mf-image" accept="image/*" onchange="previewManualImage(this)" />
+            <span class="mf-img-status" id="mf-img-status"></span>
+          </div>
         </div>
         <div class="mf-actions">
           <button class="cancel" onclick="toggleManual()">Cancel</button>
@@ -674,6 +680,8 @@ function renderColCard(c){
       + '<div class="v"><div class="amt'+(c.avg_price==null?' none':'')+'">'+ (c.avg_price==null?'—':money(c.avg_price)) +'</div><div class="lbl">Avg (recent)</div>'+deltaAvg+'</div>'
       +'</div>'
     + '<div class="col-actions"><button class="refresh" onclick="refreshValue('+c.id+',this)">Refresh value</button>'
+      + '<button class="photo" onclick="document.getElementById(\'cardimg-'+c.id+'\').click()">'+(c.image_url?'Change photo':'Add photo')+'</button>'
+      + '<input type="file" id="cardimg-'+c.id+'" accept="image/*" style="display:none" onchange="uploadCardImage('+c.id+',this)" />'
       + '<button class="del" onclick="delCard('+c.id+')">Remove</button>'+valuedAt+'</div>'
   + '</div>';
 }
@@ -700,6 +708,22 @@ async function saveTeamYear(id){
     populateFilters(allCards);
     renderCollection();
   } catch(e){ alert(e.message); }
+}
+
+async function uploadCardImage(id, input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const btn = input.previousElementSibling;
+  const old = btn.textContent; btn.textContent = "…"; btn.disabled = true;
+  try {
+    const url = await uploadImage(file);
+    const res = await apiFetch("/api/collection/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({image_url:url})});
+    if(!res.ok){ const d=await res.json(); throw new Error(d.error||"Failed"); }
+    const updated = await res.json();
+    const i = allCards.findIndex(x=>x.id===id);
+    if(i>=0) allCards[i] = updated;
+    renderCollection();
+  } catch(e){ alert(e.message); btn.textContent=old; btn.disabled=false; }
 }
 
 async function refreshValue(id, btn){
@@ -806,6 +830,38 @@ async function addFromGroup(btn){
   } catch(e){ btn.textContent = "+ Add"; btn.disabled=false; alert(e.message); }
 }
 
+// ---------- Image upload ----------
+let manualImageUrl = null;
+
+function fileToDataUrl(file){
+  return new Promise((resolve,reject)=>{
+    const r = new FileReader();
+    r.onload = ()=>resolve(r.result);
+    r.onerror = ()=>reject(new Error("Could not read file"));
+    r.readAsDataURL(file);
+  });
+}
+async function uploadImage(file){
+  const dataUrl = await fileToDataUrl(file);
+  const res = await apiFetch("/api/upload",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image_base64:dataUrl})});
+  const out = await res.json();
+  if(!res.ok) throw new Error(out.error||"Upload failed");
+  return out.url;
+}
+async function previewManualImage(input){
+  const file = input.files && input.files[0];
+  const status = $("mf-img-status");
+  if(!file){ manualImageUrl=null; status.textContent=""; return; }
+  status.style.color="var(--green)"; status.textContent="Uploading…";
+  try {
+    manualImageUrl = await uploadImage(file);
+    status.textContent = "Photo ready ✓";
+  } catch(e){
+    manualImageUrl = null;
+    status.style.color="var(--accent)"; status.textContent = e.message;
+  }
+}
+
 // ---------- Manual add ----------
 function toggleManual(){
   const f = $("manual-form");
@@ -826,13 +882,14 @@ async function saveManual(){
     notes: $("mf-notes").value.trim(),
     team: $("mf-team").value.trim(),
     year: $("mf-year").value,
-    image_url: null, listing_url: null
+    image_url: manualImageUrl, listing_url: null
   };
   status.style.color="var(--green)"; status.textContent="Adding…";
   try {
     const res = await apiFetch("/api/collection",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     if(!res.ok){ const d=await res.json(); throw new Error(d.error||"Failed"); }
-    ["mf-title","mf-query","mf-grader","mf-grade","mf-paid","mf-notes","mf-team","mf-year"].forEach(id=>$(id).value="");
+    ["mf-title","mf-query","mf-grader","mf-grade","mf-paid","mf-notes","mf-team","mf-year","mf-image"].forEach(id=>$(id).value="");
+    manualImageUrl = null; $("mf-img-status").textContent = "";
     status.textContent="Added. You can add another or close.";
     loadCollection();
   } catch(e){ status.style.color="var(--accent)"; status.textContent=e.message; }
