@@ -194,6 +194,13 @@
   .modal .save { background:var(--green); color:#fff; border:none; }
   .modal .cancel { background:none; border:1px solid var(--rule); color:var(--ink); }
 
+  /* Backup bar */
+  .backup-bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:12px 16px; margin-bottom:22px; background:var(--card); border:1px solid var(--rule); border-radius:3px; }
+  .backup-bar .bk-label { font-family:"Spline Sans Mono",monospace; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:#8a7f6f; margin-right:2px; }
+  .backup-bar .bk-btn { font-family:"Spline Sans Mono",monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; text-decoration:none; padding:7px 13px; border:1px solid var(--ink); border-radius:2px; background:var(--paper); color:var(--ink); transition:all .18s; }
+  .backup-bar .bk-btn:hover { background:var(--ink); color:var(--paper); }
+  .backup-bar .bk-status { font-family:"Spline Sans Mono",monospace; font-size:11px; color:var(--green); margin-left:auto; }
+
   /* Login gate */
   #login-gate { position:fixed; inset:0; background:var(--paper);
     background-image: radial-gradient(circle at 1px 1px, rgba(28,26,23,.04) 1px, transparent 0);
@@ -274,6 +281,14 @@
   <!-- COLLECTION -->
   <section id="panel-collection" class="panel">
     <div id="summary"></div>
+    <div class="backup-bar">
+      <span class="bk-label">Backup</span>
+      <a class="bk-btn" href="/api/collection/export.json" download>Export JSON</a>
+      <a class="bk-btn" href="/api/collection/export.csv" download>Export CSV</a>
+      <button class="bk-btn" onclick="document.getElementById('import-file').click()">Import JSON…</button>
+      <input type="file" id="import-file" accept="application/json,.json" style="display:none" onchange="handleImport(this)" />
+      <span class="bk-status" id="import-status"></span>
+    </div>
     <div id="collection-list"></div>
   </section>
 </div>
@@ -513,6 +528,52 @@ async function delCard(id){
   if(!confirm("Remove this card from your collection?")) return;
   await apiFetch("/api/collection/"+id,{method:"DELETE"});
   loadCollection();
+}
+
+async function handleImport(input){
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const status = $("import-status");
+  status.style.color = "var(--green)";
+  status.textContent = "Reading file…";
+  let data;
+  try {
+    data = JSON.parse(await file.text());
+  } catch(e){
+    status.style.color = "var(--accent)";
+    status.textContent = "That doesn't look like a valid JSON backup.";
+    input.value = "";
+    return;
+  }
+  if(!data || !Array.isArray(data.cards)){
+    status.style.color = "var(--accent)";
+    status.textContent = "No cards found in that file.";
+    input.value = "";
+    return;
+  }
+  const count = data.cards.length;
+  const replace = confirm(
+    "Import "+count+" card(s).\n\n" +
+    "OK = REPLACE your current collection with this backup.\n" +
+    "Cancel = MERGE (add these on top of what you have)."
+  );
+  status.textContent = "Importing…";
+  try {
+    const res = await apiFetch("/api/collection/import", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ cards: data.cards, mode: replace ? "replace" : "merge" })
+    });
+    const out = await res.json();
+    if(!res.ok){ throw new Error(out.error || "Import failed"); }
+    status.style.color = "var(--green)";
+    status.textContent = "Imported "+out.imported+(out.skipped?(", skipped "+out.skipped):"")+" ("+out.mode+").";
+    loadCollection();
+  } catch(e){
+    status.style.color = "var(--accent)";
+    status.textContent = e.message;
+  }
+  input.value = "";
 }
 
 checkSession();
