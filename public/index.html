@@ -206,6 +206,40 @@
   .backup-bar .bk-btn:hover { background:var(--ink); color:var(--paper); }
   .backup-bar .bk-status { font-family:"Spline Sans Mono",monospace; font-size:11px; color:var(--green); margin-left:auto; }
 
+  /* Add cards (inline on collection tab) */
+  .add-cards { background:var(--card); border:1px solid var(--rule); border-radius:3px; padding:18px; margin-bottom:26px; }
+  .add-cards-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }
+  .add-cards-head .ac-title { font-family:"Fraunces",serif; font-weight:600; font-size:19px; }
+  .ac-manual-toggle { font-family:"Spline Sans Mono",monospace; font-size:11px; letter-spacing:.08em; text-transform:uppercase; cursor:pointer; background:none; border:1px solid var(--green); color:var(--green); border-radius:2px; padding:6px 11px; transition:all .18s; }
+  .ac-manual-toggle:hover { background:var(--green); color:#fff; }
+  .addbar { display:flex; gap:10px; }
+  .addbar input { flex:1; font-family:"Newsreader",serif; font-size:17px; padding:11px 14px; background:var(--paper); border:1.5px solid var(--ink); border-radius:2px; color:var(--ink); }
+  .addbar input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .ac-hint { font-family:"Spline Sans Mono",monospace; font-size:11px; color:#8a7f6f; margin:10px 0 4px; }
+
+  .group { display:grid; grid-template-columns:54px 1fr auto; gap:14px; align-items:center; padding:12px 0; border-bottom:1px solid var(--rule); }
+  .group .thumb { width:54px; height:54px; object-fit:cover; background:#e9e1d2; border:1px solid var(--rule); border-radius:2px; }
+  .group .thumb.ph { display:flex; align-items:center; justify-content:center; color:#bcae97; font-family:"Spline Sans Mono",monospace; font-size:8px; }
+  .group .g-title { font-size:16px; line-height:1.3; }
+  .group .g-tags { font-family:"Spline Sans Mono",monospace; font-size:11px; color:#8a7f6f; margin-top:3px; letter-spacing:.04em; }
+  .group .g-right { text-align:right; white-space:nowrap; }
+  .group .g-price { font-family:"Fraunces",serif; font-weight:600; font-size:18px; }
+  .group .g-sub { font-family:"Spline Sans Mono",monospace; font-size:10px; color:#8a7f6f; }
+  .group .g-add { margin-top:5px; font-family:"Spline Sans Mono",monospace; font-size:10px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; background:none; color:var(--green); border:1px solid var(--green); border-radius:2px; padding:4px 9px; transition:all .18s; }
+  .group .g-add:hover { background:var(--green); color:#fff; }
+  .group .g-add.done { color:#8a7f6f; border-color:var(--rule); cursor:default; }
+
+  .manual-form { margin-top:16px; padding-top:16px; border-top:1px dashed var(--rule); }
+  .mf-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; }
+  .mf-grid .mf-wide { grid-column:1 / -1; }
+  .mf-grid label { display:block; font-family:"Spline Sans Mono",monospace; font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:#8a7f6f; margin-bottom:4px; }
+  .mf-grid input { width:100%; font-family:"Newsreader",serif; font-size:15px; padding:8px 10px; border:1px solid var(--rule); border-radius:2px; background:var(--paper); color:var(--ink); }
+  .mf-actions { display:flex; gap:10px; align-items:center; margin-top:14px; }
+  .mf-actions button { font-family:"Spline Sans Mono",monospace; font-size:11px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer; padding:9px 16px; border-radius:2px; }
+  .mf-actions .save { background:var(--green); color:#fff; border:none; }
+  .mf-actions .cancel { background:none; border:1px solid var(--rule); color:var(--ink); }
+  .mf-status { font-family:"Spline Sans Mono",monospace; font-size:11px; }
+
   /* Login gate */
   #login-gate { position:fixed; inset:0; background:var(--paper);
     background-image: radial-gradient(circle at 1px 1px, rgba(28,26,23,.04) 1px, transparent 0);
@@ -293,6 +327,35 @@
       <button class="bk-btn" onclick="document.getElementById('import-file').click()">Import JSON…</button>
       <input type="file" id="import-file" accept="application/json,.json" style="display:none" onchange="handleImport(this)" />
       <span class="bk-status" id="import-status"></span>
+    </div>
+    <div class="add-cards">
+      <div class="add-cards-head">
+        <span class="ac-title">Add cards you own</span>
+        <button class="ac-manual-toggle" onclick="toggleManual()">+ Add manually</button>
+      </div>
+      <div class="addbar">
+        <input type="text" id="ac-q" placeholder="Search by player, year, set, grade — e.g. 2018 Bowman Ohtani PSA 10" onkeydown="if(event.key==='Enter')runCatalogSearch()" />
+        <button class="go" onclick="runCatalogSearch()">Search</button>
+      </div>
+      <div class="ac-hint">Results group identical cards together. Don't see a card that hasn't sold recently? Use "Add manually."</div>
+      <div id="ac-results"></div>
+
+      <!-- Manual add form (hidden until toggled) -->
+      <div id="manual-form" class="manual-form" style="display:none">
+        <div class="mf-grid">
+          <div class="mf-wide"><label>Card title / description *</label><input type="text" id="mf-title" placeholder="2018 Bowman Chrome Shohei Ohtani #BCP1" /></div>
+          <div class="mf-wide"><label>Valuation search query *</label><input type="text" id="mf-query" placeholder="how to find comps later, e.g. 2018 Bowman Chrome Ohtani BCP1" /></div>
+          <div><label>Grader</label><input type="text" id="mf-grader" placeholder="PSA" /></div>
+          <div><label>Grade</label><input type="text" id="mf-grade" placeholder="10" /></div>
+          <div><label>Paid (optional)</label><input type="number" id="mf-paid" placeholder="0.00" /></div>
+          <div class="mf-wide"><label>Notes (optional)</label><input type="text" id="mf-notes" /></div>
+        </div>
+        <div class="mf-actions">
+          <button class="cancel" onclick="toggleManual()">Cancel</button>
+          <button class="save" onclick="saveManual()">Add card</button>
+          <span class="mf-status" id="mf-status"></span>
+        </div>
+      </div>
     </div>
     <div id="collection-list"></div>
   </section>
@@ -551,6 +614,125 @@ async function delCard(id){
   if(!confirm("Remove this card from your collection?")) return;
   await apiFetch("/api/collection/"+id,{method:"DELETE"});
   loadCollection();
+}
+
+// ---------- Add cards (inline on Collection tab) ----------
+let acGroups = [];
+
+async function runCatalogSearch(){
+  const q = $("ac-q").value.trim();
+  const box = $("ac-results");
+  if(q.length < 4){ box.innerHTML = '<div class="err">Enter at least 4 characters.</div>'; return; }
+  box.innerHTML = '<div class="spinner">Searching…</div>';
+  const p = new URLSearchParams({ q, sort:"date_desc", limit:50 });
+  try {
+    const res = await apiFetch("/api/search?"+p.toString());
+    const data = await res.json();
+    if(!res.ok){ box.innerHTML = '<div class="err">'+ (data.error||"Search failed") +'</div>'; return; }
+    acGroups = groupSales(data.data || []);
+    renderGroups(acGroups);
+  } catch(e){ box.innerHTML = '<div class="err">'+e.message+'</div>'; }
+}
+
+// Collapse identical cards into one entry. Key = normalized title + grader + grade.
+function groupSales(rows){
+  const map = new Map();
+  for(const s of rows){
+    const norm = (s.title||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
+    const key = norm + "|" + (s.grader||"") + "|" + (s.grade||"");
+    if(!map.has(key)){
+      map.set(key, {
+        title: s.title, grader: s.grader, grade: s.grade,
+        platform: s.platform, image_url: s.thumbnail_url||s.image_url||null,
+        listing_url: saleUrl(s), prices: [], dates: []
+      });
+    }
+    const g = map.get(key);
+    if(typeof s.price === "number") g.prices.push(s.price);
+    if(s.sale_date) g.dates.push(s.sale_date);
+  }
+  const groups = [...map.values()].map(g=>{
+    const n = g.prices.length;
+    const avg = n ? Math.round(g.prices.reduce((a,b)=>a+b,0)/n) : null;
+    const latest = n ? g.prices[0] : null; // rows were date_desc
+    return {...g, count:n, avg, latest};
+  });
+  // sort by how many sales (most-traded first)
+  groups.sort((a,b)=> b.count - a.count);
+  return groups;
+}
+
+function renderGroups(groups){
+  const box = $("ac-results");
+  if(!groups.length){ box.innerHTML = '<div class="empty"><div class="big">No cards found.</div>Try different terms, or add the card manually.</div>'; return; }
+  let html = '<div class="meta-line">'+groups.length+' distinct card(s)</div>';
+  groups.forEach((g,i)=>{
+    const grade = [g.grader,g.grade].filter(Boolean).join(" ");
+    const thumb = g.image_url
+      ? '<img class="thumb" src="'+esc(g.image_url)+'" loading="lazy" onerror="this.replaceWith(Object.assign(document.createElement(\'div\'),{className:\'thumb ph\',textContent:\'no img\'}))" />'
+      : '<div class="thumb ph">no img</div>';
+    html += '<div class="group">'
+      + thumb
+      + '<div><div class="g-title">'+esc(g.title)+'</div>'
+        + '<div class="g-tags">'+ esc(g.platform||'') + (grade?' · '+esc(grade):'') + ' · '+g.count+' recent sale'+(g.count===1?'':'s') +'</div></div>'
+      + '<div class="g-right"><div class="g-price">'+ (g.avg!=null?money(g.avg):'—') +'</div>'
+        + '<div class="g-sub">avg of '+g.count+'</div>'
+        + '<button class="g-add" id="gadd-'+i+'" data-idx="'+i+'" onclick="addFromGroup(this)">+ Add</button>'
+      + '</div></div>';
+  });
+  box.innerHTML = html;
+}
+
+async function addFromGroup(btn){
+  const g = acGroups[Number(btn.dataset.idx)];
+  if(!g) return;
+  btn.textContent = "…"; btn.disabled = true;
+  const body = {
+    title: g.title,
+    query: g.title.length>70 ? g.title.slice(0,70) : g.title,
+    grader: g.grader||"", grade: g.grade||"",
+    paid: "", notes: "",
+    image_url: g.image_url||null,
+    listing_url: g.listing_url||null,
+    latest_price: g.latest, avg_price: g.avg, comp_count: g.count,
+    valued_at: new Date().toISOString()
+  };
+  try {
+    const res = await apiFetch("/api/collection",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!res.ok){ const d=await res.json(); throw new Error(d.error||"Failed"); }
+    btn.textContent = "✓ Added"; btn.classList.add("done");
+    loadCollection();
+  } catch(e){ btn.textContent = "+ Add"; btn.disabled=false; alert(e.message); }
+}
+
+// ---------- Manual add ----------
+function toggleManual(){
+  const f = $("manual-form");
+  const open = f.style.display !== "none";
+  f.style.display = open ? "none" : "block";
+  if(!open){ $("mf-title").focus(); $("mf-status").textContent=""; }
+}
+async function saveManual(){
+  const title = $("mf-title").value.trim();
+  const query = $("mf-query").value.trim() || title;
+  const status = $("mf-status");
+  if(!title){ status.style.color="var(--accent)"; status.textContent="Title is required."; return; }
+  const body = {
+    title, query,
+    grader: $("mf-grader").value.trim(),
+    grade: $("mf-grade").value.trim(),
+    paid: $("mf-paid").value,
+    notes: $("mf-notes").value.trim(),
+    image_url: null, listing_url: null
+  };
+  status.style.color="var(--green)"; status.textContent="Adding…";
+  try {
+    const res = await apiFetch("/api/collection",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if(!res.ok){ const d=await res.json(); throw new Error(d.error||"Failed"); }
+    ["mf-title","mf-query","mf-grader","mf-grade","mf-paid","mf-notes"].forEach(id=>$(id).value="");
+    status.textContent="Added. You can add another or close.";
+    loadCollection();
+  } catch(e){ status.style.color="var(--accent)"; status.textContent=e.message; }
 }
 
 async function handleImport(input){
