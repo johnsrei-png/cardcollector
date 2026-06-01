@@ -61,6 +61,8 @@ db.exec(`
     notes         TEXT,
     image_url     TEXT,
     listing_url   TEXT,
+    team          TEXT,
+    year          INTEGER,
     added_at      TEXT NOT NULL,
     latest_price  REAL,
     avg_price     REAL,
@@ -69,12 +71,19 @@ db.exec(`
   );
 `);
 
-// Migration: add listing_url to databases created before this column existed.
+// Migration: add any columns missing from databases created before they existed.
 try {
-  const cols = db.prepare("PRAGMA table_info(cards)").all();
-  if (!cols.some((c) => c.name === "listing_url")) {
-    db.exec("ALTER TABLE cards ADD COLUMN listing_url TEXT");
-    console.log("  Migrated: added listing_url column.");
+  const cols = db.prepare("PRAGMA table_info(cards)").all().map((c) => c.name);
+  const needed = [
+    ["listing_url", "TEXT"],
+    ["team", "TEXT"],
+    ["year", "INTEGER"],
+  ];
+  for (const [name, type] of needed) {
+    if (!cols.includes(name)) {
+      db.exec(`ALTER TABLE cards ADD COLUMN ${name} ${type}`);
+      console.log(`  Migrated: added ${name} column.`);
+    }
   }
 } catch (e) {
   console.log("  Migration check failed: " + e.message);
@@ -175,6 +184,13 @@ function summarize(sales) {
     avg_price: avg !== null ? Math.round(avg * 100) / 100 : null,
     comp_count: prices.length,
   };
+}
+
+// Best-effort: pull a 4-digit year (1900-2099) from a card title.
+function extractYear(title) {
+  if (!title) return null;
+  const m = String(title).match(/\b(19|20)\d{2}\b/);
+  return m ? Number(m[0]) : null;
 }
 
 // ---------- App ----------
@@ -282,7 +298,7 @@ app.get("/api/collection/export.csv", requireAuth, (req, res) => {
     .prepare("SELECT * FROM cards WHERE user_id = ? ORDER BY added_at DESC")
     .all(req.user.id);
   const cols = [
-    "title", "query", "grader", "grade", "paid", "notes",
+    "title", "year", "team", "query", "grader", "grade", "paid", "notes",
     "latest_price", "avg_price", "comp_count", "valued_at", "added_at", "listing_url",
   ];
   const lines = [cols.join(",")];
@@ -306,8 +322,8 @@ app.post("/api/collection/import", requireAuth, (req, res) => {
   const mode = body.mode === "replace" ? "replace" : "merge";
 
   const insert = db.prepare(
-    `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, listing_url, added_at, latest_price, avg_price, comp_count, valued_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, listing_url, team, year, added_at, latest_price, avg_price, comp_count, valued_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
   let imported = 0, skipped = 0;
   try {
@@ -327,6 +343,8 @@ app.post("/api/collection/import", requireAuth, (req, res) => {
         c.notes || null,
         c.image_url || null,
         c.listing_url || null,
+        c.team || null,
+        c.year != null && c.year !== "" ? Number(c.year) : extractYear(c.title),
         c.added_at || new Date().toISOString(),
         c.latest_price != null ? Number(c.latest_price) : null,
         c.avg_price != null ? Number(c.avg_price) : null,
@@ -345,13 +363,14 @@ app.post("/api/collection/import", requireAuth, (req, res) => {
 
 app.post("/api/collection", requireAuth, (req, res) => {
   const { title, query, grader, grade, paid, notes, image_url, listing_url,
-          latest_price, avg_price, comp_count, valued_at } = req.body;
+          latest_price, avg_price, comp_count, valued_at, team, year } = req.body;
   if (!title || !query) return res.status(400).json({ error: "title and query are required." });
   const num = (v) => (v != null && v !== "" ? Number(v) : null);
+  const resolvedYear = num(year) != null ? num(year) : extractYear(title);
   const info = db
     .prepare(
-      `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, listing_url, added_at, latest_price, avg_price, comp_count, valued_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, listing_url, team, year, added_at, latest_price, avg_price, comp_count, valued_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       req.user.id,
@@ -363,6 +382,8 @@ app.post("/api/collection", requireAuth, (req, res) => {
       notes || null,
       image_url || null,
       listing_url || null,
+      team || null,
+      resolvedYear,
       new Date().toISOString(),
       num(latest_price),
       num(avg_price),
@@ -381,7 +402,14 @@ app.patch("/api/collection/:id", requireAuth, (req, res) => {
   const paid =
     req.body.paid != null && req.body.paid !== "" ? Number(req.body.paid) : card.paid;
   const notes = req.body.notes != null ? req.body.notes : card.notes;
-  db.prepare("UPDATE cards SET paid = ?, notes = ? WHERE id = ?").run(paid, notes, card.id);
+  const team = req.body.team != null ? (req.body.team || null) : card.team;
+  const year =
+    req.body.year != null
+      ? (req.body.year === "" ? null : Number(req.body.year))
+      : card.year;
+  db.prepare("UPDATE cards SET paid = ?, notes = ?, team = ?, year = ? WHERE id = ?").run(
+    paid, notes, team, year, card.id
+  );
   res.json(db.prepare("SELECT * FROM cards WHERE id = ?").get(card.id));
 });
 
