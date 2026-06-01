@@ -240,6 +240,19 @@
   .mf-actions .cancel { background:none; border:1px solid var(--rule); color:var(--ink); }
   .mf-status { font-family:"Spline Sans Mono",monospace; font-size:11px; }
 
+  /* Collection filter/sort controls */
+  .col-controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+  .col-controls input, .col-controls select { font-family:"Spline Sans Mono",monospace; font-size:12px; padding:9px 11px; background:var(--card); border:1px solid var(--rule); border-radius:2px; color:var(--ink); }
+  .col-controls input { flex:1; min-width:180px; font-family:"Newsreader",serif; font-size:15px; }
+  .col-controls input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+  .col-meta-tags { font-family:"Spline Sans Mono",monospace; font-size:11px; color:var(--accent-deep); margin-top:3px; letter-spacing:.04em; }
+  .col-meta-tags .ty-edit { cursor:pointer; color:#8a7f6f; text-decoration:underline; margin-left:6px; font-size:10px; text-transform:uppercase; letter-spacing:.08em; }
+  .col-meta-tags .ty-edit:hover { color:var(--accent); }
+  .ty-inline { display:inline-flex; gap:6px; align-items:center; margin-top:4px; }
+  .ty-inline input { font-family:"Spline Sans Mono",monospace; font-size:11px; padding:4px 6px; border:1px solid var(--rule); border-radius:2px; background:var(--paper); width:70px; }
+  .ty-inline .ty-save { cursor:pointer; font-family:"Spline Sans Mono",monospace; font-size:10px; text-transform:uppercase; letter-spacing:.08em; border:1px solid var(--green); color:var(--green); background:none; border-radius:2px; padding:3px 8px; }
+  .ty-inline .ty-save:hover { background:var(--green); color:#fff; }
+
   /* Login gate */
   #login-gate { position:fixed; inset:0; background:var(--paper);
     background-image: radial-gradient(circle at 1px 1px, rgba(28,26,23,.04) 1px, transparent 0);
@@ -345,6 +358,8 @@
         <div class="mf-grid">
           <div class="mf-wide"><label>Card title / description *</label><input type="text" id="mf-title" placeholder="2018 Bowman Chrome Shohei Ohtani #BCP1" /></div>
           <div class="mf-wide"><label>Valuation search query *</label><input type="text" id="mf-query" placeholder="how to find comps later, e.g. 2018 Bowman Chrome Ohtani BCP1" /></div>
+          <div><label>Year</label><input type="number" id="mf-year" placeholder="2018" /></div>
+          <div><label>Team</label><input type="text" id="mf-team" placeholder="Angels" /></div>
           <div><label>Grader</label><input type="text" id="mf-grader" placeholder="PSA" /></div>
           <div><label>Grade</label><input type="text" id="mf-grade" placeholder="10" /></div>
           <div><label>Paid (optional)</label><input type="number" id="mf-paid" placeholder="0.00" /></div>
@@ -356,6 +371,20 @@
           <span class="mf-status" id="mf-status"></span>
         </div>
       </div>
+    </div>
+    <div class="col-controls" id="col-controls" style="display:none">
+      <input type="text" id="col-filter" placeholder="Filter by title, team, year…" oninput="renderCollection()" />
+      <select id="col-team" onchange="renderCollection()"><option value="">All teams</option></select>
+      <select id="col-year" onchange="renderCollection()"><option value="">All years</option></select>
+      <select id="col-sort" onchange="renderCollection()">
+        <option value="added_desc">Newest added</option>
+        <option value="year_desc">Year ↓</option>
+        <option value="year_asc">Year ↑</option>
+        <option value="team_asc">Team A→Z</option>
+        <option value="value_desc">Value ↓</option>
+        <option value="value_asc">Value ↑</option>
+        <option value="title_asc">Title A→Z</option>
+      </select>
     </div>
     <div id="collection-list"></div>
   </section>
@@ -545,16 +574,59 @@ async function saveCard(){
 }
 
 // ---------- Collection ----------
+let allCards = [];
+
 async function loadCollection(){
   const list = $("collection-list");
   list.innerHTML = '<div class="spinner">Loading collection…</div>';
   const res = await apiFetch("/api/collection");
-  const cards = await res.json();
-  renderSummary(cards);
-  if(!cards.length){
-    list.innerHTML = '<div class="empty"><div class="big">Your stash is empty.</div>Search sold listings and tap “+ Collection” to start tracking.</div>';
+  allCards = await res.json();
+  renderSummary(allCards);
+  populateFilters(allCards);
+  $("col-controls").style.display = allCards.length ? "flex" : "none";
+  if(!allCards.length){
+    list.innerHTML = '<div class="empty"><div class="big">Your stash is empty.</div>Search above and tap “+ Add” to start tracking.</div>';
     return;
   }
+  renderCollection();
+}
+
+function populateFilters(cards){
+  const teams = [...new Set(cards.map(c=>c.team).filter(Boolean))].sort();
+  const years = [...new Set(cards.map(c=>c.year).filter(Boolean))].sort((a,b)=>b-a);
+  const teamSel = $("col-team"), yearSel = $("col-year");
+  const curTeam = teamSel.value, curYear = yearSel.value;
+  teamSel.innerHTML = '<option value="">All teams</option>' + teams.map(t=>'<option'+(t===curTeam?' selected':'')+'>'+esc(t)+'</option>').join("");
+  yearSel.innerHTML = '<option value="">All years</option>' + years.map(y=>'<option'+(String(y)===curYear?' selected':'')+'>'+y+'</option>').join("");
+}
+
+function renderCollection(){
+  const list = $("collection-list");
+  const filter = $("col-filter").value.trim().toLowerCase();
+  const team = $("col-team").value;
+  const year = $("col-year").value;
+  const sort = $("col-sort").value;
+  let cards = allCards.filter(c=>{
+    if(team && c.team !== team) return false;
+    if(year && String(c.year) !== year) return false;
+    if(filter){
+      const hay = [c.title, c.team, c.year, c.grader, c.grade].filter(Boolean).join(" ").toLowerCase();
+      if(!hay.includes(filter)) return false;
+    }
+    return true;
+  });
+  const val = c => (c.avg_price!=null?c.avg_price:(c.latest_price!=null?c.latest_price:-1));
+  const cmp = {
+    added_desc: (a,b)=> (b.added_at||"").localeCompare(a.added_at||""),
+    year_desc: (a,b)=> (b.year||0)-(a.year||0),
+    year_asc: (a,b)=> (a.year||9999)-(b.year||9999),
+    team_asc: (a,b)=> (a.team||"~").localeCompare(b.team||"~"),
+    value_desc: (a,b)=> val(b)-val(a),
+    value_asc: (a,b)=> val(a)-val(b),
+    title_asc: (a,b)=> (a.title||"").localeCompare(b.title||""),
+  }[sort] || (()=>0);
+  cards = cards.slice().sort(cmp);
+  if(!cards.length){ list.innerHTML = '<div class="empty"><div class="big">No cards match.</div>Clear the filters to see everything.</div>'; return; }
   list.innerHTML = cards.map(renderColCard).join("");
 }
 
@@ -585,9 +657,14 @@ function renderColCard(c){
   const titleHtml = (typeof c.listing_url === "string" && /^https?:\/\//i.test(c.listing_url))
     ? '<a class="title titlelink" href="'+esc(c.listing_url)+'" target="_blank" rel="noopener noreferrer">'+esc(c.title)+' <span class="ext">↗</span></a>'
     : '<div class="title">'+esc(c.title)+'</div>';
+  const tyParts = [c.year, c.team].filter(Boolean).join(" · ");
+  const tyLine = '<div class="col-meta-tags" id="ty-'+c.id+'">'
+    + (tyParts ? esc(tyParts) : '<span style="color:#a89b85">no year/team</span>')
+    + '<span class="ty-edit" onclick="editTeamYear('+c.id+')">edit</span></div>';
   return '<div class="col-card">'
     + thumb
     + '<div>'+ titleHtml
+      + tyLine
       + '<div class="tags">'+ (grade?esc(grade)+' · ':'') + (c.comp_count?c.comp_count+' comps':'not yet valued') +'</div>'
       + (c.paid?'<div class="paid">paid '+money(c.paid)+'</div>':'')
       + (c.notes?'<div class="paid">“'+esc(c.notes)+'”</div>':'')
@@ -599,6 +676,30 @@ function renderColCard(c){
     + '<div class="col-actions"><button class="refresh" onclick="refreshValue('+c.id+',this)">Refresh value</button>'
       + '<button class="del" onclick="delCard('+c.id+')">Remove</button>'+valuedAt+'</div>'
   + '</div>';
+}
+
+function editTeamYear(id){
+  const c = allCards.find(x=>x.id===id);
+  if(!c) return;
+  const el = $("ty-"+id);
+  el.innerHTML = '<span class="ty-inline">'
+    + 'Year <input type="number" id="tyy-'+id+'" value="'+(c.year||"")+'" placeholder="2018" />'
+    + 'Team <input type="text" id="tyt-'+id+'" value="'+esc(c.team||"")+'" placeholder="Angels" style="width:110px" />'
+    + '<button class="ty-save" onclick="saveTeamYear('+id+')">Save</button></span>';
+  $("tyy-"+id).focus();
+}
+async function saveTeamYear(id){
+  const year = $("tyy-"+id).value;
+  const team = $("tyt-"+id).value.trim();
+  try {
+    const res = await apiFetch("/api/collection/"+id,{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({year, team})});
+    if(!res.ok){ const d=await res.json(); throw new Error(d.error||"Failed"); }
+    const updated = await res.json();
+    const i = allCards.findIndex(x=>x.id===id);
+    if(i>=0) allCards[i] = updated;
+    populateFilters(allCards);
+    renderCollection();
+  } catch(e){ alert(e.message); }
 }
 
 async function refreshValue(id, btn){
@@ -723,13 +824,15 @@ async function saveManual(){
     grade: $("mf-grade").value.trim(),
     paid: $("mf-paid").value,
     notes: $("mf-notes").value.trim(),
+    team: $("mf-team").value.trim(),
+    year: $("mf-year").value,
     image_url: null, listing_url: null
   };
   status.style.color="var(--green)"; status.textContent="Adding…";
   try {
     const res = await apiFetch("/api/collection",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     if(!res.ok){ const d=await res.json(); throw new Error(d.error||"Failed"); }
-    ["mf-title","mf-query","mf-grader","mf-grade","mf-paid","mf-notes"].forEach(id=>$(id).value="");
+    ["mf-title","mf-query","mf-grader","mf-grade","mf-paid","mf-notes","mf-team","mf-year"].forEach(id=>$(id).value="");
     status.textContent="Added. You can add another or close.";
     loadCollection();
   } catch(e){ status.style.color="var(--accent)"; status.textContent=e.message; }
