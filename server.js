@@ -14,6 +14,8 @@ const PORT = process.env.PORT || 3000;
 const API_BASE = "https://thecardapi.com/api/v1/market";
 // On Render, set DB_PATH to a path on the mounted disk, e.g. /var/data/collection.db
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, "collection.db");
+// Uploaded images live next to the database (i.e. on the same persistent disk).
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(path.dirname(DB_PATH), "uploads");
 // Secret used to sign session cookies. MUST be set in production.
 const SESSION_SECRET = process.env.SESSION_SECRET || "dev-insecure-secret-change-me";
 // Users seeded as: "alice:password1,bob:password2"
@@ -44,6 +46,13 @@ function verifyPassword(password, stored) {
 // ---------- Database ----------
 const db = new DatabaseSync(DB_PATH);
 db.exec("PRAGMA journal_mode = WAL;");
+
+// Ensure the uploads directory exists (on the persistent disk in production).
+try {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+} catch (e) {
+  console.log("  Could not create uploads dir: " + e.message);
+}
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,7 +205,7 @@ function extractYear(title) {
 // ---------- App ----------
 const app = express();
 app.set("trust proxy", 1); // behind Render's proxy, for secure cookies
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "12mb" }));
 
 // Auth middleware for /api routes (except /api/login and /api/me)
 function requireAuth(req, res, next) {
@@ -312,6 +321,30 @@ app.get("/api/collection/export.csv", requireAuth, (req, res) => {
   res.send(lines.join("\n"));
 });
 
+// ---- Image upload: accepts a base64 data URL, saves to disk, returns URL ----
+app.post("/api/upload", requireAuth, (req, res) => {
+  const dataUrl = req.body && req.body.image_base64;
+  if (typeof dataUrl !== "string") {
+    return res.status(400).json({ error: "No image provided." });
+  }
+  const m = dataUrl.match(/^data:image\/(png|jpe?g|webp|gif);base64,(.+)$/i);
+  if (!m) {
+    return res.status(400).json({ error: "Unsupported image format. Use PNG, JPG, WebP, or GIF." });
+  }
+  const ext = m[1].toLowerCase() === "jpeg" ? "jpg" : m[1].toLowerCase();
+  const buf = Buffer.from(m[2], "base64");
+  if (buf.length > 6 * 1024 * 1024) {
+    return res.status(413).json({ error: "Image too large (max ~6 MB)." });
+  }
+  const name = `u${req.user.id}-${Date.now()}-${crypto.randomBytes(4).toString("hex")}.${ext}`;
+  try {
+    fs.writeFileSync(path.join(UPLOADS_DIR, name), buf);
+  } catch (e) {
+    return res.status(500).json({ error: "Could not save image: " + e.message });
+  }
+  res.json({ url: "/uploads/" + name });
+});
+
 // ---- Import: restore from a JSON backup ----
 // mode "merge" (default) adds the cards; mode "replace" wipes this user's
 // cards first, then adds. Only ever touches the logged-in user's data.
@@ -407,8 +440,9 @@ app.patch("/api/collection/:id", requireAuth, (req, res) => {
     req.body.year != null
       ? (req.body.year === "" ? null : Number(req.body.year))
       : card.year;
-  db.prepare("UPDATE cards SET paid = ?, notes = ?, team = ?, year = ? WHERE id = ?").run(
-    paid, notes, team, year, card.id
+  const image_url = req.body.image_url != null ? (req.body.image_url || null) : card.image_url;
+  db.prepare("UPDATE cards SET paid = ?, notes = ?, team = ?, year = ?, image_url = ? WHERE id = ?").run(
+    paid, notes, team, year, image_url, card.id
   );
   res.json(db.prepare("SELECT * FROM cards WHERE id = ?").get(card.id));
 });
@@ -440,6 +474,7 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 const INDEX_FILE = path.join(PUBLIC_DIR, "index.html");
 
 app.use(express.static(PUBLIC_DIR));
+app.use("/uploads", express.static(UPLOADS_DIR));
 
 // Explicit root + catch-all for any non-API path -> serve the app shell.
 app.get("/", (req, res) => {
