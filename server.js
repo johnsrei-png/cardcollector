@@ -168,7 +168,7 @@ function summarize(sales) {
 // ---------- App ----------
 const app = express();
 app.set("trust proxy", 1); // behind Render's proxy, for secure cookies
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 
 // Auth middleware for /api routes (except /api/login and /api/me)
 function requireAuth(req, res, next) {
@@ -236,6 +236,98 @@ app.get("/api/collection", requireAuth, (req, res) => {
     .prepare("SELECT * FROM cards WHERE user_id = ? ORDER BY added_at DESC")
     .all(req.user.id);
   res.json(rows);
+});
+
+// ---- Export: full backup as JSON ----
+app.get("/api/collection/export.json", requireAuth, (req, res) => {
+  const rows = db
+    .prepare("SELECT * FROM cards WHERE user_id = ? ORDER BY added_at DESC")
+    .all(req.user.id);
+  const payload = {
+    format: "card-collection-backup",
+    version: 1,
+    exported_at: new Date().toISOString(),
+    username: req.user.username,
+    cards: rows.map(({ id, user_id, ...rest }) => rest), // drop internal ids
+  };
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="collection-${req.user.username}-${stamp}.json"`
+  );
+  res.send(JSON.stringify(payload, null, 2));
+});
+
+// ---- Export: spreadsheet-friendly CSV ----
+function csvCell(v) {
+  if (v == null) return "";
+  const s = String(v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+app.get("/api/collection/export.csv", requireAuth, (req, res) => {
+  const rows = db
+    .prepare("SELECT * FROM cards WHERE user_id = ? ORDER BY added_at DESC")
+    .all(req.user.id);
+  const cols = [
+    "title", "query", "grader", "grade", "paid", "notes",
+    "latest_price", "avg_price", "comp_count", "valued_at", "added_at",
+  ];
+  const lines = [cols.join(",")];
+  for (const r of rows) lines.push(cols.map((c) => csvCell(r[c])).join(","));
+  const stamp = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="collection-${req.user.username}-${stamp}.csv"`
+  );
+  res.send(lines.join("\n"));
+});
+
+// ---- Import: restore from a JSON backup ----
+// mode "merge" (default) adds the cards; mode "replace" wipes this user's
+// cards first, then adds. Only ever touches the logged-in user's data.
+app.post("/api/collection/import", requireAuth, (req, res) => {
+  const body = req.body || {};
+  const cards = Array.isArray(body.cards) ? body.cards : null;
+  if (!cards) return res.status(400).json({ error: "No cards array in uploaded file." });
+  const mode = body.mode === "replace" ? "replace" : "merge";
+
+  const insert = db.prepare(
+    `INSERT INTO cards (user_id, title, query, grader, grade, paid, notes, image_url, added_at, latest_price, avg_price, comp_count, valued_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  );
+  let imported = 0, skipped = 0;
+  try {
+    db.exec("BEGIN");
+    if (mode === "replace") {
+      db.prepare("DELETE FROM cards WHERE user_id = ?").run(req.user.id);
+    }
+    for (const c of cards) {
+      if (!c || !c.title || !c.query) { skipped++; continue; }
+      insert.run(
+        req.user.id,
+        c.title,
+        c.query,
+        c.grader || null,
+        c.grade || null,
+        c.paid != null && c.paid !== "" ? Number(c.paid) : null,
+        c.notes || null,
+        c.image_url || null,
+        c.added_at || new Date().toISOString(),
+        c.latest_price != null ? Number(c.latest_price) : null,
+        c.avg_price != null ? Number(c.avg_price) : null,
+        c.comp_count != null ? Number(c.comp_count) : null,
+        c.valued_at || null
+      );
+      imported++;
+    }
+    db.exec("COMMIT");
+    res.json({ ok: true, imported, skipped, mode });
+  } catch (e) {
+    try { db.exec("ROLLBACK"); } catch {}
+    res.status(500).json({ error: "Import failed: " + e.message });
+  }
 });
 
 app.post("/api/collection", requireAuth, (req, res) => {
